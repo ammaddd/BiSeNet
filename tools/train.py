@@ -3,8 +3,7 @@
 
 import sys
 sys.path.insert(0, '.')
-from comet_ml import Experiment
-experiment = Experiment(auto_metric_logging=False)
+from lib.comet_utils import CometLogger
 import os
 import os.path as osp
 import random
@@ -54,12 +53,14 @@ def parse_args():
     parse.add_argument('--port', dest='port', type=int, default=44554,)
     parse.add_argument('--model', dest='model', type=str, default='bisenetv2',)
     parse.add_argument('--finetune-from', type=str, default=None,)
+    parse.add_argument('--comet', type=bool, default=False, help='enable comet logging')
     return parse.parse_args()
 
 args = parse_args()
 cfg = cfg_factory[args.model]
-experiment.log_others(vars(args))
-experiment.log_others(vars(cfg))
+comet_logger = CometLogger(args.comet, auto_metric_logging=False)
+comet_logger.log_others(vars(args))
+comet_logger.log_others(vars(cfg))
 
 
 def set_model():
@@ -185,8 +186,8 @@ def train():
         lr_schdr.step()
 
         time_meter.update()
-        experiment.log_metric("loss_pre", loss_pre, step=it)
-        experiment.log_metric("loss", loss.item(), step=it)
+        comet_logger.log_metric("loss_pre", loss_pre, step=it)
+        comet_logger.log_metric("loss", loss.item(), step=it)
         loss_meter.update(loss.item())
         loss_pre_meter.update(loss_pre.item())
         _ = [mter.update(lss.item()) for mter, lss in zip(loss_aux_meters, loss_aux)]
@@ -195,11 +196,11 @@ def train():
         if (it + 1) % 100 == 0:
             lr = lr_schdr.get_lr()
             lr = sum(lr) / len(lr)
-            experiment.log_metric("lr", lr, step=it)
-            experiment.log_image(im[0].detach().cpu().numpy() ,"images",
-                                 image_channels='first', step=it)
-            experiment.log_image(lb[0].detach().cpu().numpy() ,"labels",
-                                 image_channels='first', step=it)
+            comet_logger.log_metric("lr", lr, step=it)
+            comet_logger.log_image(im[0].detach().cpu().numpy() ,"images",
+                                   image_channels='first', step=it)
+            comet_logger.log_image(lb[0].detach().cpu().numpy() ,"labels",
+                                   image_channels='first', step=it)
             print_log_msg(
                 it, cfg.max_iter, lr, time_meter, loss_meter,
                 loss_pre_meter, loss_aux_meters)
@@ -210,7 +211,7 @@ def train():
     state = net.module.state_dict()
     if dist.get_rank() == 0: 
         torch.save(state, save_pth)
-        experiment.log_asset(save_pth, 'model_final.pth')
+        comet_logger.log_asset(save_pth, 'model_final.pth')
 
     logger.info('\nevaluating the final model')
     torch.cuda.empty_cache()
